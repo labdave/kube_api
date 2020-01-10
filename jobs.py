@@ -30,6 +30,14 @@ class Job:
         self.containers = []
         self.volumes = []
 
+    @staticmethod
+    def env_var(**kwargs):
+        env_list = []
+        if kwargs:
+            for env_name, env_value in kwargs.items():
+                env_list.append(client.V1EnvVar(name=env_name, value=env_value))
+        return env_list
+
     def status(self):
         """Job status
         """
@@ -90,47 +98,37 @@ class Job:
         """
         return [pod.name for pod in self.pods()]
 
-    def add_container(
-            self, container_image, command,
-            # Optional Arguments
-            command_args=None, container_name=None, volume_mounts=None, resources=None, lifecycle=None,
-            **envs
-    ):
+    def add_container(self, container_image, command, command_args=None, container_name=None, **kwargs):
+        # Use job name as the default container name
         if not container_name:
             container_name = self.job_name
+        # Make command and command_args as lists
         if not isinstance(command, list):
             command = [command]
         if command_args and not isinstance(command_args, list):
             command_args = [command_args]
 
-        env_list = []
-        if envs:
-            for env_name, env_value in envs.items():
-                env_list.append(client.V1EnvVar(name=env_name, value=env_value))
         container = client.V1Container(
             # lifecycle=client.V1Lifecycle(post_start=post_start_handler),
             command=command,
             args=command_args,
             name=container_name,
             image=container_image,
-            env=env_list,
-            volume_mounts=volume_mounts,
-            # volume_mounts=[client.V1VolumeMount("/data")]
-            lifecycle=lifecycle,
-            resources=resources
+            **kwargs
         )
         self.containers.append(container)
         return self
 
-    def add_volume(self):
-        pass
+    def add_volume(self, **kwargs):
+        self.volumes.append(client.V1Volume(**kwargs))
+        return self
 
-    def create(self, **kwargs):
+    def create(self, job_spec, pod_spec):
         """Creates and runs the job on the cluster.
 
         Args:
-            kwargs: a dictionary of keyword arguments that will be passed to the pod_template()
-                This corresponds to the keyword arguments for V1PodSpec()
+            job_spec: A dictionary of keyword arguments that will be passed to V1JobSpec()
+            pod_spec: A dictionary of keyword arguments that will be passed to V1PodSpec()
 
         Returns: A dictionary containing the results of creating the job on the cluster.
 
@@ -146,6 +144,10 @@ class Job:
         job_body = client.V1Job(kind="Job")
         job_body.metadata = client.V1ObjectMeta(namespace=self.namespace, name=job_name)
         job_body.status = client.V1JobStatus()
-        template = pod_template(self.containers, self.volumes, **kwargs)
-        job_body.spec = client.V1JobSpec(ttl_seconds_after_finished=600, template=template.template)
+        template = pod_template(self.containers, self.volumes, **pod_spec)
+        job_body.spec = client.V1JobSpec(template=template.template, **job_spec)
         return api_request(api.create_namespaced_job, self.namespace, job_body)
+
+    def delete(self):
+        body = client.V1DeleteOptions(propagation_policy='Foreground')
+        return api_request(api.delete_namespaced_job, name=self.job_name, namespace=self.namespace, body=body)
