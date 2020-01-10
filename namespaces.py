@@ -1,10 +1,6 @@
 from kubernetes import client
-from kube.config import configuration
+from kube_api.config import core_v1_api
 from .utils import api_request
-
-
-# create an instance of the API class
-core_v1_api = client.CoreV1Api(client.ApiClient(configuration))
 
 
 def create(name):

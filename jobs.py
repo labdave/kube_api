@@ -1,6 +1,6 @@
 import logging
 from kubernetes import client
-from kube.config import batch_v1_api as api
+from kube_api.config import batch_v1_api as api
 from .utils import api_request
 from .pods import Pod, pod_template
 logger = logging.getLogger(__name__)
