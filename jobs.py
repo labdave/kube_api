@@ -51,7 +51,11 @@ class Job:
             pod_info = pod.info()
             # TODO: sort the pods by time
             # Use the logs from succeeded pod if there is one
-            phase = pod_info.get("status", {}).get("phase")
+            pod_status = pod_info.get("status", {})
+            if isinstance(pod_status, dict):
+                phase = pod_status.get("phase")
+            else:
+                phase = ""
             # Save pod logs as the best available log
             job_logs = pod.logs()
             # Use pod logs as job logs if pod finished successfully.
