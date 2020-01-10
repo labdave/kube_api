@@ -7,9 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 def list_all(namespace=None):
-    """Lists all jobs
+    """Lists all jobs on the cluster
     If namespace is specified, lists only jobs in the namespace.
-    Otherwise, list all jobs in all namespaces.
     """
     if namespace:
         logger.debug("Getting jobs for namespace %s..." % namespace)
@@ -21,7 +20,8 @@ def list_all(namespace=None):
 
 
 class Job:
-    """Represents a kubernetes job."""
+    """Represents a kubernetes job.
+    """
     def __init__(self, job_name, namespace='default'):
         """Initialize a Job object, which can be an existing job or used to create a new job.
         """
@@ -36,30 +36,45 @@ class Job:
         return api_request(api.read_namespaced_job_status, self.job_name, self.namespace)
 
     def logs(self):
+        """Gets the logs of the job from the last pod running the job.
+        This method will try to the logs from last succeeded pod.
+        The logs of the last pod will be returned if there is no succeeded pod.
+
+        Caution: Only logs from ONE pod will be returned.
+
+        Returns: A string containing the logs. None if logs are not available.
+
+        """
         job_logs = None
         for pod_name in self.pod_names():
             pod = Pod(pod_name, self.namespace)
             pod_info = pod.info()
+            # TODO: sort the pods by time
             # Use the logs from succeeded pod if there is one
             phase = pod_info.get("status", {}).get("phase")
-            pod_logs = pod.logs()
+            # Save pod logs as the best available log
+            job_logs = pod.logs()
             # Use pod logs as job logs if pod finished successfully.
             if phase == "Succeeded":
-                job_logs = pod_logs
                 break
-            # Save pod logs as the best available log
-            job_logs = pod_logs
         return job_logs
 
     def pods(self):
+        """Gets a list of pods for running the job.
+
+        Returns: A list of pods, each is a pods.Pod object.
+
+        """
         v1 = client.CoreV1Api()
         response = api_request(v1.list_pod_for_all_namespaces, watch=False, pretty='true')
         # logger.debug(response)
         if response.get("error"):
             return []
         pods = []
+        # Loop through all the pods to find the pods for the job
         for pod in response.get("items"):
             if pod.get("metadata", {}).get("labels", {}).get("job-name") == self.job_name:
+                # Create and append a Pod object.
                 pods.append(Pod(
                     pod.get("metadata", {}).get("name", "N/A"),
                     pod.get("metadata", {}).get("namespace", "N/A"),
@@ -68,6 +83,11 @@ class Job:
         return pods
 
     def pod_names(self):
+        """Gets the names of the pods for running the job
+
+        Returns: A list of strings.
+
+        """
         return [pod.name for pod in self.pods()]
 
     def add_container(
@@ -106,6 +126,15 @@ class Job:
         pass
 
     def create(self, **kwargs):
+        """Creates and runs the job on the cluster.
+
+        Args:
+            kwargs: a dictionary of keyword arguments that will be passed to the pod_template()
+                This corresponds to the keyword arguments for V1PodSpec()
+
+        Returns: A dictionary containing the results of creating the job on the cluster.
+
+        """
         if not self.containers:
             raise ValueError(
                 "Containers not found. "
