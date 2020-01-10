@@ -12,6 +12,9 @@ class Pod:
         self.namespace = namespace
         self.api = client.CoreV1Api()
 
+    def status(self):
+        return self.info()
+
     def info(self):
         """Gets the pod information as a dictionary.
 
