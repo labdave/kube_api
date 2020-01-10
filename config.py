@@ -25,7 +25,7 @@ def load_configuration(config_file_path):
     core_v1_api = client.CoreV1Api(client.ApiClient(configuration))
 
 
-config_file = os.environ.get("KUBE_CONFIG")
+config_file = os.environ.get("KUBERNETES_CONFIG")
 if config_file:
     load_configuration(config_file)
 

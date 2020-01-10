@@ -3,7 +3,7 @@ This repository contains a simple Kubernetes Python API (Kube API). This API is 
 
 ## Loading the Configurations
 A configuration file is required for calling the APIs. There are two ways for loading configurations:
-1. Set the "KUBE_CONFIG" environment variable to the path of the configuration file. The configurations will be loaded automatically.
+1. Set the "KUBERNETES_CONFIG" environment variable to the path of the configuration file. The configurations will be loaded automatically.
 2. Explicitly call `config.load_configuration(config_file_path)`.
 
 ## Handling Exceptions
