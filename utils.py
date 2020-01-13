@@ -24,7 +24,10 @@ def api_request(api_func, *args, **kwargs):
 
     """
     try:
-        response = api_func(*args, **kwargs).to_dict()
+        response = api_func(*args, **kwargs)
+        # Convert the response to dictionary if possible
+        if hasattr(response, "to_dict"):
+            response = response.to_dict()
     except ApiException as e:
         logger.debug("Exception when calling %s: %s" % (api_func.__name__, e))
         response = {
