@@ -127,7 +127,7 @@ class Job:
         self.volumes.append(client.V1Volume(**kwargs))
         return self
 
-    def create(self, job_spec, pod_spec):
+    def create(self, job_spec=None, pod_spec=None):
         """Creates and runs the job on the cluster.
 
         Args:
@@ -137,6 +137,10 @@ class Job:
         Returns: A dictionary containing the results of creating the job on the cluster.
 
         """
+        if job_spec is None:
+            job_spec = {}
+        if pod_spec is None:
+            pod_spec = {}
         if not self.containers:
             raise ValueError(
                 "Containers not found. "
