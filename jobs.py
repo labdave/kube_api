@@ -1,4 +1,8 @@
 import logging
+import re
+import random
+import string
+import time
 from kubernetes import client
 from kube_api.config import batch_v1_api as api
 from .utils import api_request
@@ -29,6 +33,51 @@ class Job:
         self.namespace = namespace
         self.containers = []
         self.volumes = []
+        self.creation_response = None
+        self.__status = None
+        self.__logs = None
+
+    @staticmethod
+    def run_shell_commands(image, commands, name_prefix="", namespace='default', **kwargs):
+        """Runs commands on a docker image using "/bin/sh -c".
+
+        Args:
+            image: Docker image for running the job.
+            commands (string or list): Job commands.
+                commands can be a string with line breaks (each line is a command), or
+                a list of strings, each is a command.
+                Empty lines will be removed.
+            name_prefix: A string prefix for the job name.
+                A random string will be used as job name if name_prefix is empty or None.
+            namespace: Namespace for the job.
+            **kwargs: keyword arguments to be passed into Job.create(), which can be:
+                job_spec: a dictionary of keyword arguments for initializing V1PJobSpec()
+                pod_spec: a dictionary of keyword arguments for initializing V1PodSpec()
+
+        Returns:
+
+        """
+        if not isinstance(commands, list):
+            # Parse text string and Remove empty lines from commands.
+            # Each line is a command, the commands will be connected with "&&" instead of line break.
+            commands = [c.strip() for c in str(commands).split("\n") if c.strip()]
+        args = " && ".join(commands)
+        # Replace non alpha numeric and convert to lower case.
+        if name_prefix:
+            job_name = re.sub('[^0-9a-zA-Z]+', '-', str(name_prefix).strip()).lower() + "-"
+        else:
+            job_name = ""
+        # Append a random string
+        job_name += ''.join(random.choice(string.ascii_lowercase) for _ in range(6))
+        logger.debug("Job:%s, Image: %s" % (job_name, image))
+        logger.debug("%d commands." % len(args))
+        job = Job(job_name, namespace)
+        job.add_container(
+            image,
+            ["/bin/sh", "-c"],
+            args
+        ).create(job_spec=dict(backoff_limit=0), **kwargs)
+        return job
 
     @staticmethod
     def env_var(**kwargs):
@@ -38,12 +87,60 @@ class Job:
                 env_list.append(client.V1EnvVar(name=env_name, value=env_value))
         return env_list
 
-    def status(self):
-        """Job status
-        """
-        return api_request(api.read_namespaced_job_status, self.job_name, self.namespace)
+    @property
+    def server_status(self):
+        job_status = self.info().get("status", dict())
+        if not isinstance(job_status, dict):
+            return dict()
+        return job_status
 
-    def logs(self):
+    @property
+    def is_active(self):
+        return self.server_status.get("active")
+
+    @property
+    def succeeded(self):
+        return self.server_status.get("succeeded")
+
+    def wait(self, interval=20, timeout=7200):
+        """Waits for the job to finish
+        """
+        counter = 0
+        # Stop checking the results if the job is running for more than 3 hours.
+        while counter < timeout:
+            # Check job status every interval
+            time.sleep(interval)
+            status = self.status().get("status", {})
+            if status.get("succeeded"):
+                logger.debug("Job %s succeeded." % self.job_name)
+                return self
+            elif status.get("failed"):
+                logger.error("Job %s failed" % self.job_name)
+                return self
+            elif not status.get("active"):
+                logger.debug("Job %s is no longer active." % self.job_name)
+                return self
+            counter += interval
+        logger.error("Timeout: Job %s has been running for more than %s seconds" % (self.job_name, timeout))
+        return self
+
+    def info(self, use_cache=True):
+        """Job info from the cluster
+        """
+        if self.__status and use_cache:
+            return self.__status
+        s = api_request(api.read_namespaced_job_status, self.job_name, self.namespace)
+        # Save the status if the job is no longer active
+        job_status = s.get("status", dict())
+        logger.debug(job_status)
+        if isinstance(job_status, dict) and not job_status.get("active"):
+            self.__status = s
+        return s
+
+    def status(self):
+        return self.info()
+
+    def logs(self, use_cache=True):
         """Gets the logs of the job from the last pod running the job.
         This method will try to the logs from last succeeded pod.
         The logs of the last pod will be returned if there is no succeeded pod.
@@ -53,6 +150,8 @@ class Job:
         Returns: A string containing the logs. None if logs are not available.
 
         """
+        if self.__logs and use_cache:
+            return self.__logs
         job_logs = None
         for pod_name in self.pod_names():
             pod = Pod(pod_name, self.namespace)
@@ -69,6 +168,8 @@ class Job:
             # Use pod logs as job logs if pod finished successfully.
             if phase == "Succeeded":
                 break
+        if not self.is_active:
+            self.__logs = job_logs
         return job_logs
 
     def pods(self):
@@ -154,7 +255,8 @@ class Job:
         job_body.status = client.V1JobStatus()
         template = pod_template(self.containers, self.volumes, **pod_spec)
         job_body.spec = client.V1JobSpec(template=template.template, **job_spec)
-        return api_request(api.create_namespaced_job, self.namespace, job_body)
+        self.creation_response = api_request(api.create_namespaced_job, self.namespace, job_body)
+        return self.creation_response
 
     def delete(self):
         body = client.V1DeleteOptions(propagation_policy='Foreground')
