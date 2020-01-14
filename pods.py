@@ -39,8 +39,11 @@ class Pod:
             job_info = self.info()
         containers = []
         for attr in ["init_containers", "containers"]:
+            values = get_dict_value(job_info, "spec", attr, default=[])
+            if not values:
+                continue
             containers.extend([
-                c.get("name") for c in get_dict_value(job_info, "spec", attr, default=[])
+                c.get("name") for c in values
             ])
         return containers
 
