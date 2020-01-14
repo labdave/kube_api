@@ -1,6 +1,6 @@
 import logging
 from kubernetes import client
-from .utils import api_request
+from .utils import api_request, get_dict_value
 logger = logging.getLogger(__name__)
 
 
@@ -30,17 +30,44 @@ class Pod:
                 "namespace": self.namespace
             })
             response["metadata"] = metadata
-        response["logs"] = self.logs()
+        containers = self.__get_container_names(response)
+        response["logs"] = self.logs(containers)
         return response
 
-    def logs(self):
+    def __get_container_names(self, job_info=None):
+        if not job_info:
+            job_info = self.info()
+        containers = []
+        for attr in ["init_containers", "containers"]:
+            containers.extend([
+                c.get("name") for c in get_dict_value(job_info, "spec", attr, default=[])
+            ])
+        return containers
+
+    def container_names(self):
+        return self.__get_container_names()
+
+    def logs(self, containers=None):
         """Gets the logs of pod
 
         Returns: A string containing the logs. None if there is an error.
 
         """
         logger.debug("Getting logs from pod: %s in %s" % (self.name, self.namespace))
-        pod_logs = api_request(self.api.read_namespaced_pod_log, self.name, self.namespace)
+        pod_logs = []
+        if containers is None:
+            containers = self.container_names()
+        if isinstance(containers, str):
+            containers = [containers]
+        for container in containers:
+            container_logs = api_request(
+                self.api.read_namespaced_pod_log, self.name, self.namespace, container=container
+            )
+            if isinstance(container_logs, str):
+                pod_logs.append(container_logs)
+            else:
+                logger.debug(container_logs)
+        pod_logs = ("\n" + "-" * 40 + "\n").join(pod_logs)
         # There is an error if the pod_logs is a dictionary
         if isinstance(pod_logs, dict):
             return None

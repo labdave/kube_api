@@ -31,11 +31,58 @@ class Job:
         """
         self.job_name = job_name
         self.namespace = namespace
+        self.job_spec = dict()
+        self.pod_spec = dict()
+
         self.containers = []
         self.volumes = []
-        self.creation_response = None
+
+        self.creation_response = dict()
         self.__status = None
         self.__logs = None
+
+    @staticmethod
+    def parse_commands(commands):
+        """Parses shell commands from string or list of strings.
+
+        Args:
+            commands (str or list): Commands as a string with line breaks or a list of commands
+            If commands is a string, the commands must be separated by line breaks ("\n").
+            If commands is a list, each string in the list should be a command.
+            Empty lines will be removed.
+
+        Returns: A string of commands connect by "&&"
+
+        """
+        if not isinstance(commands, list):
+            # Parse text string and Remove empty lines from commands.
+            # Each line is a command, the commands will be connected with "&&" instead of line break.
+            commands = [c.strip() for c in str(commands).strip().split("\n") if c.strip()]
+            logger.debug("%d commands." % len(commands))
+        args = " && ".join(commands)
+        return args
+
+    @staticmethod
+    def generate_job_name(prefix, n=6):
+        """Generates a job name by concatenating a prefix and a string of random lower case letters.
+        The prefix will be converted to lower case string.
+        Non-alphanumeric characters in the prefix will be replaced by "-".
+
+        Args:
+            prefix (string): Prefix of the job name.
+            n (int): The number of random lower case letters to be appended to the prefix.
+
+        Returns: A string like "prefix-abcdef"
+
+        """
+        # Replace non alpha numeric and convert to lower case.
+        if prefix:
+            job_name = re.sub('[^0-9a-zA-Z]+', '-', str(prefix).strip()).lower() + "-"
+        else:
+            job_name = ""
+        # Append a random string
+        job_name += ''.join(random.choice(string.ascii_lowercase) for _ in range(n))
+        return job_name
 
     @staticmethod
     def run_shell_commands(image, commands, name_prefix="", namespace='default', **kwargs):
@@ -57,26 +104,10 @@ class Job:
         Returns:
 
         """
-        if not isinstance(commands, list):
-            # Parse text string and Remove empty lines from commands.
-            # Each line is a command, the commands will be connected with "&&" instead of line break.
-            commands = [c.strip() for c in str(commands).split("\n") if c.strip()]
-        args = " && ".join(commands)
-        # Replace non alpha numeric and convert to lower case.
-        if name_prefix:
-            job_name = re.sub('[^0-9a-zA-Z]+', '-', str(name_prefix).strip()).lower() + "-"
-        else:
-            job_name = ""
-        # Append a random string
-        job_name += ''.join(random.choice(string.ascii_lowercase) for _ in range(6))
+        job_name = Job.generate_job_name(name_prefix)
         logger.debug("Job:%s, Image: %s" % (job_name, image))
-        logger.debug("%d commands." % len(args))
         job = Job(job_name, namespace)
-        job.add_container(
-            image,
-            ["/bin/sh", "-c"],
-            args
-        ).create(job_spec=dict(backoff_limit=0), **kwargs)
+        job.add_shell_commands(image, commands).create(job_spec=dict(backoff_limit=0), **kwargs)
         return job
 
     @staticmethod
@@ -164,7 +195,7 @@ class Job:
             else:
                 phase = ""
             # Save pod logs as the best available log
-            job_logs = pod.logs()
+            job_logs = pod_info.get("logs")
             # Use pod logs as job logs if pod finished successfully.
             if phase == "Succeeded":
                 break
@@ -203,10 +234,21 @@ class Job:
         """
         return [pod.name for pod in self.pods()]
 
+    def add_shell_commands(self, image, commands, **kwargs):
+        """Adds an image running shell commands
+        """
+        args = Job.parse_commands(commands)
+        return self.add_container(
+            image,
+            ["/bin/sh", "-c"],
+            args,
+            **kwargs
+        )
+
     def add_container(self, container_image, command, command_args=None, container_name=None, **kwargs):
         # Use job name as the default container name
         if not container_name:
-            container_name = self.job_name
+            container_name = self.job_name + '-' + ''.join(random.choice(string.ascii_lowercase) for _ in range(3))
         # Make command and command_args as lists
         if not isinstance(command, list):
             command = [command]
@@ -224,6 +266,18 @@ class Job:
         self.containers.append(container)
         return self
 
+    def clear_containers(self):
+        self.containers = []
+        return self
+
+    def run_container(self, container_image, command, command_args=None, container_name=None, **kwargs):
+        """Creates a job and run the container with a command.
+        """
+        self.add_container(container_image, command, command_args, container_name, **kwargs)
+        response = self.create()
+        self.clear_containers()
+        return response
+
     def add_volume(self, **kwargs):
         self.volumes.append(client.V1Volume(**kwargs))
         return self
@@ -239,9 +293,9 @@ class Job:
 
         """
         if job_spec is None:
-            job_spec = {}
+            job_spec = self.job_spec
         if pod_spec is None:
-            pod_spec = {}
+            pod_spec = self.pod_spec
         if not self.containers:
             raise ValueError(
                 "Containers not found. "

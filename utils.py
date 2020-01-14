@@ -65,3 +65,12 @@ def stringify(obj):
             return obj
         except TypeError:
             return str(obj)
+
+
+def get_dict_value(dictionary, *keys, default=None):
+    d = dictionary
+    for key in keys:
+        if key not in d:
+            return default
+        d = d.get(key, dict())
+    return d
