@@ -31,6 +31,7 @@ class Pod:
             })
             response["metadata"] = metadata
         containers = self.__get_container_names(response)
+        # logger.debug(response)
         response["logs"] = self.logs(containers)
         return response
 
@@ -70,6 +71,10 @@ class Pod:
                 pod_logs.append(container_logs)
             else:
                 logger.debug(container_logs)
+                if isinstance(container_logs, dict):
+                    message = container_logs.get("message")
+                    if message:
+                        pod_logs.append(container_logs.get("message"))
         pod_logs = ("\n" + "-" * 40 + "\n").join(pod_logs)
         # There is an error if the pod_logs is a dictionary
         if isinstance(pod_logs, dict):
