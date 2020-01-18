@@ -70,7 +70,7 @@ class Pod:
             if isinstance(container_logs, str):
                 pod_logs.append(container_logs)
             else:
-                logger.debug(container_logs)
+                # logger.debug(container_logs)
                 if isinstance(container_logs, dict):
                     message = container_logs.get("message")
                     if message:
