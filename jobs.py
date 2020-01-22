@@ -34,8 +34,8 @@ class Job:
         self.job_spec = dict()
         self.pod_spec = dict()
 
-        self.containers = []
-        self.volumes = []
+        self._containers = []
+        self._volumes = []
 
         self.creation_response = dict()
         self.__status = None
@@ -263,11 +263,11 @@ class Job:
             image=container_image,
             **kwargs
         )
-        self.containers.append(container)
+        self._containers.append(container)
         return self
 
     def clear_containers(self):
-        self.containers = []
+        self._containers = []
         return self
 
     def run_container(self, container_image, command, command_args=None, container_name=None, **kwargs):
@@ -279,7 +279,7 @@ class Job:
         return response
 
     def add_volume(self, **kwargs):
-        self.volumes.append(client.V1Volume(**kwargs))
+        self._volumes.append(client.V1Volume(**kwargs))
         return self
 
     def create(self, job_spec=None, pod_spec=None):
@@ -296,7 +296,7 @@ class Job:
             job_spec = self.job_spec
         if pod_spec is None:
             pod_spec = self.pod_spec
-        if not self.containers:
+        if not self._containers:
             raise ValueError(
                 "Containers not found. "
                 "Use add_containers() to specify containers before creating the job."
@@ -307,7 +307,7 @@ class Job:
         job_body = client.V1Job(kind="Job")
         job_body.metadata = client.V1ObjectMeta(namespace=self.namespace, name=job_name)
         job_body.status = client.V1JobStatus()
-        template = pod_template(self.containers, self.volumes, **pod_spec)
+        template = pod_template(self._containers, self._volumes, **pod_spec)
         job_body.spec = client.V1JobSpec(template=template.template, **job_spec)
         self.creation_response = api_request(api.create_namespaced_job, self.namespace, job_body)
         return self.creation_response
