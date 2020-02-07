@@ -10,7 +10,7 @@ from .pods import Pod, pod_template
 logger = logging.getLogger(__name__)
 
 
-def list_all(namespace=None):
+def list_all(namespace=None, prefix=""):
     """Lists all jobs on the cluster
     If namespace is specified, lists only jobs in the namespace.
     """
@@ -20,6 +20,14 @@ def list_all(namespace=None):
     else:
         logger.debug("Getting jobs for all namespaces...")
         response = api_request(api.list_job_for_all_namespaces)
+    if prefix:
+        filtered_items = []
+        items = response.get("items")
+        for item in items:
+            job_name = item.get("metadata", {}).get("name")
+            if job_name and str(job_name).startswith(prefix):
+                filtered_items.append(item)
+        response["items"] = filtered_items
     return response
 
 
