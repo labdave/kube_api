@@ -3,6 +3,7 @@ import re
 import random
 import string
 import time
+import copy
 from kubernetes import client
 from kube_api.config import batch_v1_api as api
 from .utils import api_request
@@ -323,3 +324,180 @@ class Job:
     def delete(self):
         body = client.V1DeleteOptions(propagation_policy='Foreground')
         return api_request(api.delete_namespaced_job, name=self.job_name, namespace=self.namespace, body=body)
+
+
+class WorkspaceJob(Job):
+    """Represents a job running bash commands using a list of containers with shared workspace.
+
+    "workspace" and "outputs" volumes are shared by all containers.
+
+    Attributes:
+        workspace_path: The mount path for workspace volume.
+        outputs_path: The mount path for outputs volume
+    """
+    def __init__(self, job_name, namespace='default', workspace_path="/workspace/", output_path=None):
+        super().__init__(job_name, namespace)
+        self.workspace_path = workspace_path
+        if not self.workspace_path.endswith("/"):
+            self.workspace_path += "/"
+        self.outputs_path = output_path
+        if isinstance(self.outputs_path, str) and not self.outputs_path.endswith("/"):
+            self.outputs_path += "/"
+
+        self.job_spec = dict(backoff_limit=0)
+        # envs will be shared by all jobs.
+        self.envs = dict()
+
+    def _add_volumes(self):
+        # See https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Volume.md
+        self.add_volume(
+            name="workspace",
+            empty_dir=client.V1EmptyDirVolumeSource()
+        )
+
+        # See https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1VolumeMount.md
+        volume_mounts = [
+            client.V1VolumeMount(mount_path=self.workspace_path, name="workspace"),
+        ]
+        if self.outputs_path:
+            self.add_volume(
+                name="outputs",
+                empty_dir=client.V1EmptyDirVolumeSource()
+            )
+            volume_mounts.append(
+                client.V1VolumeMount(mount_path=self.outputs_path, name="outputs"),
+            )
+
+        return volume_mounts
+
+    def run_containers(self, containers, composition='sequential'):
+        """Runs a list of containers one after another.
+
+        Args:
+            containers: A list of dictionaries, each defines the following key value pairs:
+                name: the docker image name.
+                args: the commands to be executed using "/bin/sh -c".
+                envs: a dictionary of environment variables.
+            composition: Indicates whether the containers should be executed sequentially or in parallel.
+                Containers will be executed sequentially if composition is "sequential".
+                Otherwise, the containers will be executed in parallel.
+
+        Returns:
+
+        """
+        workspace_mounts = self._add_volumes()
+        for container in containers:
+            name = container.get("name")
+            args = container.get("args")
+            vols = container.get("volumes", [])
+            # Additional volumes for this container
+            volume_mounts = workspace_mounts + [
+                client.V1VolumeMount(name=v.get("name"), mount_path=v.get("path")) for v in vols if isinstance(v, dict)
+            ]
+            # Additional environment variables for this container
+            container_envs = copy.deepcopy(self.envs)
+            container_envs.update(self.parse_env(container.get("env")))
+            if container_envs:
+                env = Job.env_var(**container_envs)
+            else:
+                env = None
+            # Add container to run shell command
+            self.add_shell_commands(name, args, volume_mounts=volume_mounts, env=env)
+        # logger.debug(self._containers)
+        job_containers = self._containers
+        if composition == "sequential":
+            # Run jobs in order using init_containers
+            # See https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
+            if len(job_containers) > 1:
+                self.pod_spec["init_containers"] = job_containers[:-1]
+                self._containers = [job_containers[-1]]
+
+        self.create()
+        return self
+
+    @staticmethod
+    def parse_env(envs):
+        if isinstance(envs, dict):
+            return envs
+        if isinstance(envs, list):
+            return WorkspaceJob.parse_env_strings(envs)
+        return dict()
+
+    @staticmethod
+    def parse_env_strings(env_list):
+        """
+
+        Args:
+            env_list: A list of environment variable defined in "KEY=VALUE" strings
+
+        Returns: A dictionary of environment variable as key-value pairs.
+
+        """
+        env_dict = dict()
+        for env_str in env_list:
+            env_arr = str(env_str).split("=", 1)
+            if len(env_arr) < 2:
+                raise ValueError("Environment Variable must be in the format of KEY=VALUE")
+            env_dict[env_arr[0]] = env_arr[1]
+        return env_dict
+
+    @classmethod
+    def run_config(cls, config, **kwargs):
+        """Runs a job defined in a configuration file.
+
+        Args:
+            config: Job configuration as a dictionary.
+            kwargs: Additional keyword arguments for initializing the job.
+                The kwargs will be passed as cls(**kwargs)
+
+        The configuration file should have a format similar to the Google Cloud Build configuration.
+        See https://cloud.google.com/cloud-build/docs/build-config
+
+        The following keys are implemented:
+        steps: name, args, env, volumes
+        options: env
+
+        In addition, the config can have the following keys:
+        prefix: A string prefix for the job name.
+            A job name will be generated with a random string appended to the prefix.
+        output_path: A directory for storing output data.
+            This volume is the same as workspace.
+            User is responsible for copying the files output of output directory
+            output_path will also be stored as a global environment variable OUTPUT_PATH
+
+        Examples:
+            If the config is stored in a json file, a job can be launched by:
+
+            with open("path/to/json", 'r') as f:
+                WorkspaceJob.run_config(json.load(f))
+
+        """
+        # prefix
+        job_name = cls.generate_job_name(config.get("prefix", ""))
+        # output_path
+        # output_path from kwargs will have higher priority
+        if "output_path" not in kwargs and config.get("output_path"):
+            kwargs["output_path"] = config.get("output_path")
+
+        # Store output path as env
+        if "output_path" in kwargs:
+            env_dict = {
+                "OUTPUT_PATH": kwargs["output_path"]
+            }
+        else:
+            env_dict = dict()
+
+        # Initialize job object
+        # cls can be a subclass if run_config is called by a subclass.
+        job = cls(job_name, **kwargs)
+
+        # options - env
+        env_dict.update(cls.parse_env(config.get("options").get("env")))
+        job.envs = env_dict
+        # steps
+        steps = config.get("steps")
+        if not steps:
+            raise ValueError("Config must have \"steps\" as key")
+        # Run job
+        job.run_containers(steps)
+        return job
