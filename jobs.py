@@ -347,6 +347,12 @@ class WorkspaceJob(Job):
         self.job_spec = dict(backoff_limit=0)
         # envs will be shared by all jobs.
         self.envs = dict()
+        if self.outputs_path:
+            self.envs["OUTPUT_PATH"] = self.outputs_path
+
+    def add_envs(self, envs):
+        self.envs.update(envs)
+        return self.envs
 
     def _add_volumes(self):
         # See https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Volume.md
@@ -479,13 +485,7 @@ class WorkspaceJob(Job):
         if "output_path" not in kwargs and config.get("output_path"):
             kwargs["output_path"] = config.get("output_path")
 
-        # Store output path as env
-        if "output_path" in kwargs:
-            env_dict = {
-                "OUTPUT_PATH": kwargs["output_path"]
-            }
-        else:
-            env_dict = dict()
+        env_dict = dict()
 
         # Initialize job object
         # cls can be a subclass if run_config is called by a subclass.
@@ -493,7 +493,7 @@ class WorkspaceJob(Job):
 
         # options - env
         env_dict.update(cls.parse_env(config.get("options").get("env")))
-        job.envs = env_dict
+        job.add_envs(env_dict)
         # steps
         steps = config.get("steps")
         if not steps:
