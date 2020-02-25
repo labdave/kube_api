@@ -384,6 +384,10 @@ class WorkspaceJob(Job):
                 name: the docker image name.
                 args: the commands to be executed using "/bin/sh -c".
                 envs: a dictionary of environment variables.
+                cpu: the number of CPU requested.
+                memory: the size of memory (GB) requested.
+                storage: the disk storage (GB) requested.
+
             composition: Indicates whether the containers should be executed sequentially or in parallel.
                 Containers will be executed sequentially if composition is "sequential".
                 Otherwise, the containers will be executed in parallel.
@@ -407,8 +411,20 @@ class WorkspaceJob(Job):
                 env = Job.env_var(**container_envs)
             else:
                 env = None
+
+            # CPU and memory
+            cpu = container.get("cpu", 0.2)
+            memory = container.get("memory", 0.5)
+            if not isinstance(memory, str):
+                memory = "%sG" % memory
+            storage = container.get("storage", 1)
+            if not isinstance(storage, str):
+                storage = "%sG" % storage
+            resources = client.V1ResourceRequirements(
+                requests={'cpu': cpu, 'memory': memory, 'ephemeral-storage': storage}
+            )
             # Add container to run shell command
-            self.add_shell_commands(name, args, volume_mounts=volume_mounts, env=env)
+            self.add_shell_commands(name, args, volume_mounts=volume_mounts, env=env, resources=resources)
         # logger.debug(self._containers)
         job_containers = self._containers
         if composition == "sequential":
@@ -470,6 +486,10 @@ class WorkspaceJob(Job):
             This volume is the same as workspace.
             User is responsible for copying the files output of output directory
             output_path will also be stored as a global environment variable OUTPUT_PATH
+
+        In each step, the following additional keys are accepted:
+        cpu: The number of cpu requested.
+        memory: The memory size (GB) requested.
 
         Examples:
             If the config is stored in a json file, a job can be launched by:
