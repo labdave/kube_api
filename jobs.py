@@ -376,27 +376,32 @@ class WorkspaceJob(Job):
 
         return volume_mounts
 
-    def run_containers(self, containers, composition='sequential'):
+    def run_containers(self, containers, composition='sequential', **kwargs):
         """Runs a list of containers one after another.
 
         Args:
             containers: A list of dictionaries, each defines the following key value pairs:
                 name: the docker image name.
                 args: the commands to be executed using "/bin/sh -c".
-                envs: a dictionary of environment variables.
-                cpu: the number of CPU requested.
-                memory: the size of memory (GB) requested.
-                storage: the disk storage (GB) requested.
+                envs: Optional, a dictionary of environment variables.
+
+                cpu: Optional, the number of CPU requested.
+                memory: Optional, the size of memory (GB) requested.
+                storage: Optional, the disk storage (GB) requested.
 
             composition: Indicates whether the containers should be executed sequentially or in parallel.
                 Containers will be executed sequentially if composition is "sequential".
                 Otherwise, the containers will be executed in parallel.
 
+            kwargs: Additional keyword arguments for adding each container.
+                values in kwargs must be lists.
+                Each value will be applied as keyword argument in the same order as the containers.
+
         Returns:
 
         """
         workspace_mounts = self._add_volumes()
-        for container in containers:
+        for i, container in enumerate(containers):
             name = container.get("name")
             args = container.get("args")
             vols = container.get("volumes", [])
@@ -423,6 +428,12 @@ class WorkspaceJob(Job):
             resources = client.V1ResourceRequirements(
                 requests={'cpu': cpu, 'memory': memory, 'ephemeral-storage': storage}
             )
+            keyword_args = {}
+            for key, values in kwargs.items():
+                if isinstance(values, list):
+                    if len(values) > i:
+                        keyword_args[key] = values[i]
+
             # Add container to run shell command
             self.add_shell_commands(name, args, volume_mounts=volume_mounts, env=env, resources=resources)
         # logger.debug(self._containers)
