@@ -82,14 +82,29 @@ class Pod:
         logger.debug("Logs have %s lines" % len(pod_logs.split("\n")))
         return pod_logs
 
+    def container_logs(self, container_name):
+        """Gets the logs of a particular container.
+        When container is starting, a message describing the status of the container will be returned if available
+        """
+        container_logs = api_request(
+            self.api.read_namespaced_pod_log, self.name, self.namespace, container=container_name
+        )
+        if isinstance(container_logs, str):
+            return container_logs
+        else:
+            # logger.debug(container_logs)
+            if isinstance(container_logs, dict):
+                message = container_logs.get("message")
+                if message:
+                    return container_logs.get("message")
+        return None
+
 
 def pod_template(containers, volumes=None, **kwargs):
     if volumes is not None and not volumes:
         volumes = None
     template = client.V1PodTemplate()
     template.template = client.V1PodTemplateSpec()
-    post_start_command = ""
-    post_start_handler = client.V1Handler(_exec=client.V1ExecAction(command=post_start_command.split(" ")))
     template.template.spec = client.V1PodSpec(
         containers=containers,
         volumes=volumes,
