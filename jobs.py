@@ -365,7 +365,8 @@ class WorkspaceJob(Job):
         volume_mounts = [
             client.V1VolumeMount(mount_path=self.workspace_path, name="workspace"),
         ]
-        if self.outputs_path:
+        # Add output volume, if outputs_path is not the same as the workspace_path.
+        if self.outputs_path and self.outputs_path != self.workspace_path:
             self.add_volume(
                 name="outputs",
                 empty_dir=client.V1EmptyDirVolumeSource()
