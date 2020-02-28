@@ -435,7 +435,9 @@ class WorkspaceJob(Job):
                         keyword_args[key] = values[i]
 
             # Add container to run shell command
-            self.add_shell_commands(name, args, volume_mounts=volume_mounts, env=env, resources=resources)
+            self.add_shell_commands(
+                name, args, volume_mounts=volume_mounts, env=env, resources=resources, **keyword_args
+            )
         # logger.debug(self._containers)
         job_containers = self._containers
         if composition == "sequential":
