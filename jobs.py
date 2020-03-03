@@ -143,7 +143,19 @@ class Job:
         return self.server_status.get("succeeded")
 
     def wait(self, interval=20, timeout=7200):
-        """Waits for the job to finish
+        """Waits for the job to finish.
+        This method works by checking the job status periodically (every interval, e.g. 20 seconds).
+        This method will return if:
+            The job is succeeded, failed or no longer active due to some other reason.
+            Or timeout is reached.
+
+        Args:
+            interval (int): The time interval in seconds between checking the job status.
+            timeout (int): Timeout in seconds.
+                This method will return after timeout, regardless of the job status.
+
+        Returns: self.
+
         """
         counter = 0
         # Stop checking the results if the job is running for more than 3 hours.
@@ -172,12 +184,17 @@ class Job:
         s = api_request(api.read_namespaced_job_status, self.job_name, self.namespace)
         # Save the status if the job is no longer active
         job_status = s.get("status", dict())
-        logger.debug(job_status)
+        # logger.debug(job_status)
         if isinstance(job_status, dict) and not job_status.get("active"):
             self.__status = s
         return s
 
     def status(self):
+        """Same as info().
+        The actual status information get be obtained by self.status().get("status").
+        The method may be modified to return just the status in the future.
+        """
+        # TODO: return self.info().get("status") instead.
         return self.info()
 
     def logs(self, use_cache=True):
@@ -255,6 +272,22 @@ class Job:
         )
 
     def add_container(self, container_image, command, command_args=None, container_name=None, **kwargs):
+        """Adds a container to the job
+
+        This is a general purpose method for adding a docker container.
+        Use add_shell_commands() to run shell/bash commands.
+
+        Args:
+            container_image: The docker image.
+            command: The command to be executed. This will replace the ENTRYPOINT of the docker image.
+            command_args: Additional arguments for the command.
+            container_name: Optional container name.
+                If container_name is not specified, a random name will be generated based on the job name.
+            **kwargs: keyword arguments to be passed into client.V1Container()
+
+        Returns: self
+
+        """
         # Use job name as the default container name
         if not container_name:
             container_name = self.job_name + '-' + ''.join(random.choice(string.ascii_lowercase) for _ in range(3))
