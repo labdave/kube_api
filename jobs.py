@@ -410,7 +410,7 @@ class WorkspaceJob(Job):
 
         return volume_mounts
 
-    def run_containers(self, containers, composition='sequential', **kwargs):
+    def run_containers(self, containers, composition='sequential'):
         """Runs a list of containers one after another.
 
         Args:
@@ -426,10 +426,6 @@ class WorkspaceJob(Job):
             composition: Indicates whether the containers should be executed sequentially or in parallel.
                 Containers will be executed sequentially if composition is "sequential".
                 Otherwise, the containers will be executed in parallel.
-
-            kwargs: Additional keyword arguments for adding each container.
-                values in kwargs must be lists.
-                Each value will be applied as keyword argument in the same order as the containers.
 
         Returns:
 
@@ -462,15 +458,24 @@ class WorkspaceJob(Job):
             resources = client.V1ResourceRequirements(
                 requests={'cpu': cpu, 'memory': memory, 'ephemeral-storage': storage}
             )
-            keyword_args = {}
-            for key, values in kwargs.items():
-                if isinstance(values, list):
-                    if len(values) > i:
-                        keyword_args[key] = values[i]
 
+            additional_keys = [
+                "image_pull_policy",
+                "termination_message_path",
+                "termination_message_policy",
+                "tty",
+                "stdin",
+                "stdin_once"
+            ]
+
+            kwargs = {}
+            for key, value in container.items():
+                if key in additional_keys:
+                    kwargs[key] = value
+            logger.debug("Container has additional arguments: %s" % kwargs)
             # Add container to run shell command
             self.add_shell_commands(
-                name, args, volume_mounts=volume_mounts, env=env, resources=resources, **keyword_args
+                name, args, volume_mounts=volume_mounts, env=env, resources=resources, **kwargs
             )
         # logger.debug(self._containers)
         job_containers = self._containers
@@ -530,7 +535,7 @@ class WorkspaceJob(Job):
         prefix: A string prefix for the job name.
             A job name will be generated with a random string appended to the prefix.
         output_path: A directory for storing output data.
-            This volume is the same as workspace.
+            This volume can be the same as workspace.
             User is responsible for copying the files output of output directory
             output_path will also be stored as a global environment variable OUTPUT_PATH
 
