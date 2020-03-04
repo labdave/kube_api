@@ -559,8 +559,10 @@ class WorkspaceJob(Job):
         job = cls(job_name, **kwargs)
 
         # options - env
-        env_dict.update(cls.parse_env(config.get("options").get("env")))
-        job.add_envs(env_dict)
+        if isinstance(config.get("options"), dict):
+            env_dict.update(cls.parse_env(config.get("options").get("env")))
+            job.add_envs(env_dict)
+
         # steps
         steps = config.get("steps")
         if not steps:
