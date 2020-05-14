@@ -1,6 +1,8 @@
 """Build Script for setuptools
 
-This build script must be executed outside of the Aries directory.
+This build script must be executed outside of the source code directory.
+The version number will be generated using the most recent tag and the number of commits on the master branch.
+[TAG].[COMMIT_COUNT]
 
 See Also: https://packaging.python.org/tutorials/packaging-projects/
 """
@@ -18,8 +20,8 @@ with open(os.path.join(package_name, "requirements.txt"), "r") as f:
     requirements = f.read().split("\n")
     requirements = [r.strip() for r in requirements if r.strip()]
 
-release_version = os.popen("cd %s && git tag | tail -1" % package_name).read()
-commit_version = os.popen("cd %s && git rev-list --count master" % package_name).read()
+release_version = str(os.popen("cd %s && git tag | tail -1" % package_name).read()).strip()
+commit_version = str(os.popen("cd %s && git rev-list --count master" % package_name).read()).strip()
 
 setuptools.setup(
     name=package_name,
