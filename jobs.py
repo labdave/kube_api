@@ -89,6 +89,8 @@ class Job:
             job_name = re.sub('[^0-9a-zA-Z]+', '-', str(prefix).strip()).lower() + "-"
         else:
             job_name = ""
+        if len(job_name) > (60 - n):
+            job_name = job_name[:60 - n]
         # Append a random string
         job_name += ''.join(random.choice(string.ascii_lowercase) for _ in range(n))
         return job_name
