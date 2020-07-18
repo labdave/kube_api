@@ -21,6 +21,8 @@ with open(os.path.join(package_name, "requirements.txt"), "r") as f:
     requirements = [r.strip() for r in requirements if r.strip()]
 
 release_version = str(os.popen("cd %s && git tag | tail -1" % package_name).read()).strip()
+if not release_version:
+    raise ValueError("Release version not found.")
 commit_version = str(os.popen("cd %s && git rev-list --count master" % package_name).read()).strip()
 
 setuptools.setup(
