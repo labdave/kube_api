@@ -27,6 +27,9 @@ def load_configuration(config_file_path):
     try:
         config_data = json.load(open(config_file))
         cert_path, host, api_token, api_prefix = __parse_identity_json(config_data)
+        cert_file = os.environ.get("KUBERNETES_CERT")
+        if cert_file:
+            cert_path = cert_file
     except Exception:
         config.load_kube_config(config_file=config_file_path)
 
