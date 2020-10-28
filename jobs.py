@@ -242,8 +242,7 @@ class Job:
         Returns: A list of pods, each is a pods.Pod object.
 
         """
-        v1 = client.CoreV1Api()
-        response = api_request(v1.list_pod_for_all_namespaces, watch=False, pretty='true')
+        response = api_request(core_api.list_pod_for_all_namespaces, watch=False, pretty='true')
         # logger.debug(response)
         if response.get("error"):
             return []

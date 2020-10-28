@@ -1,5 +1,6 @@
 import logging
 from kubernetes import client
+from kube_api.config import core_v1_api as core_api
 from .utils import api_request, get_dict_value
 logger = logging.getLogger(__name__)
 
@@ -10,7 +11,6 @@ class Pod:
     def __init__(self, pod_name, namespace='default'):
         self.name = pod_name
         self.namespace = namespace
-        self.api = client.CoreV1Api()
 
     def status(self):
         return self.info()
@@ -22,7 +22,7 @@ class Pod:
 
         """
         logger.debug("Getting info from pod: %s in %s" % (self.name, self.namespace))
-        response = api_request(self.api.read_namespaced_pod, self.name, self.namespace)
+        response = api_request(core_api.read_namespaced_pod, self.name, self.namespace)
         if response.get("error"):
             metadata = response.get("metadata", {})
             metadata.update({
@@ -65,7 +65,7 @@ class Pod:
             containers = [containers]
         for container in containers:
             container_logs = api_request(
-                self.api.read_namespaced_pod_log, self.name, self.namespace, container=container
+                core_api.read_namespaced_pod_log, self.name, self.namespace, container=container
             )
             if isinstance(container_logs, str):
                 pod_logs.append(container_logs)
@@ -87,7 +87,7 @@ class Pod:
         When container is starting, a message describing the status of the container will be returned if available
         """
         container_logs = api_request(
-            self.api.read_namespaced_pod_log, self.name, self.namespace, container=container_name
+            core_api.read_namespaced_pod_log, self.name, self.namespace, container=container_name
         )
         if isinstance(container_logs, str):
             return container_logs
