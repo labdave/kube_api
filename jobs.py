@@ -5,9 +5,10 @@ import string
 import time
 import copy
 from kubernetes import client
-from kube_api.config import batch_v1_api as api
+from kube_api.config import batch_v1_api as api, core_v1_api as core_api
 from .utils import api_request
 from .pods import Pod, pod_template
+from .volumeclaims import VolumeClaim
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +46,7 @@ class Job:
 
         self._containers = []
         self._volumes = []
+        self._volume_claims = []
 
         self.creation_response = dict()
         self.__status = None
@@ -167,12 +169,15 @@ class Job:
             status = self.status().get("status", {})
             if status.get("succeeded"):
                 logger.debug("Job %s succeeded." % self.job_name)
+                self.cleanup()
                 return self
             elif status.get("failed"):
                 logger.error("Job %s failed" % self.job_name)
+                self.cleanup()
                 return self
             elif not status.get("active"):
                 logger.debug("Job %s is no longer active." % self.job_name)
+                self.cleanup()
                 return self
             counter += interval
         logger.error("Timeout: Job %s has been running for more than %s seconds" % (self.job_name, timeout))
@@ -326,6 +331,14 @@ class Job:
         self._volumes.append(client.V1Volume(**kwargs))
         return self
 
+    def cleanup(self):
+        if self._volumes:
+            for vol in self._volumes:
+                if vol.persistent_volume_claim:
+                    response = api_request(core_api.delete_namespaced_persistent_volume_claim,
+                                            namespace=self.namespace,
+                                            name=vol.persistent_volume_claim.claim_name)
+
     def create(self, job_spec=None, pod_spec=None):
         """Creates and runs the job on the cluster.
 
@@ -370,7 +383,7 @@ class WorkspaceJob(Job):
         workspace_path: The mount path for workspace volume.
         outputs_path: The mount path for outputs volume
     """
-    def __init__(self, job_name, namespace='default', workspace_path="/workspace/", output_path=None):
+    def __init__(self, job_name, namespace='default', workspace_path="/workspace/", output_path=None, workspace_size="1", output_size="1"):
         super().__init__(job_name, namespace)
         self.workspace_path = workspace_path
         if not self.workspace_path.endswith("/"):
@@ -379,7 +392,12 @@ class WorkspaceJob(Job):
         if isinstance(self.outputs_path, str) and not self.outputs_path.endswith("/"):
             self.outputs_path += "/"
 
+        self.workspace_size = workspace_size
+        self.output_size = output_size
+
         self.job_spec = dict(backoff_limit=0)
+        self.workspace_vc = None
+        self.outputs_vc = None
         # envs will be shared by all jobs.
         self.envs = dict()
         if self.outputs_path:
@@ -391,9 +409,13 @@ class WorkspaceJob(Job):
 
     def _add_volumes(self):
         # See https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1Volume.md
+        self.workspace_vc = VolumeClaim(self.job_name+"-wvc", self.workspace_size, self.namespace)
+        wrkspc_response = self.workspace_vc.create()
         self.add_volume(
             name="workspace",
-            empty_dir=client.V1EmptyDirVolumeSource()
+            persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                claim_name=self.job_name+"-wvc"
+            )
         )
 
         # See https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1VolumeMount.md
@@ -402,9 +424,13 @@ class WorkspaceJob(Job):
         ]
         # Add output volume, if outputs_path is not the same as the workspace_path.
         if self.outputs_path and self.outputs_path != self.workspace_path:
+            self.outputs_vc = VolumeClaim(self.job_name+"-ovc", self.output_size, self.namespace)
+            out_response = self.outputs_vc.create()
             self.add_volume(
                 name="outputs",
-                empty_dir=client.V1EmptyDirVolumeSource()
+                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                    claim_name=self.job_name+"-ovc"
+                )
             )
             volume_mounts.append(
                 client.V1VolumeMount(mount_path=self.outputs_path, name="outputs"),
@@ -454,11 +480,8 @@ class WorkspaceJob(Job):
             memory = container.get("memory", 0.5)
             if not isinstance(memory, str):
                 memory = "%sG" % memory
-            storage = container.get("storage", 1)
-            if not isinstance(storage, str):
-                storage = "%sG" % storage
             resources = client.V1ResourceRequirements(
-                requests={'cpu': cpu, 'memory': memory, 'ephemeral-storage': storage}
+                requests={'cpu': cpu, 'memory': memory}
             )
 
             additional_keys = [
@@ -540,6 +563,8 @@ class WorkspaceJob(Job):
             This volume can be the same as workspace.
             User is responsible for copying the files output of output directory
             output_path will also be stored as a global environment variable OUTPUT_PATH
+        workspace_size: Number of GB of storage needed for the workspace directory.
+        output_size: Number of GB of storage needed for the output directory.
 
         In each step, the following additional keys are accepted:
         cpu: The number of cpu requested.
@@ -558,6 +583,10 @@ class WorkspaceJob(Job):
         # output_path from kwargs will have higher priority
         if "output_path" not in kwargs and config.get("output_path"):
             kwargs["output_path"] = config.get("output_path")
+        if "workspace_size" not in kwargs and config.get("workspace_size"):
+            kwargs["workspace_size"] = config.get("workspace_size")
+        if "output_size" not in kwargs and config.get("output_size"):
+            kwargs["output_size"] = config.get("output_size")
 
         env_dict = dict()
 
