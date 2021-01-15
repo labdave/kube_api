@@ -586,6 +586,8 @@ class WorkspaceJob(Job):
             kwargs["workspace_size"] = config.get("workspace_size")
         if "output_size" not in kwargs and config.get("output_size"):
             kwargs["output_size"] = config.get("output_size")
+        if "preemptible" not in kwargs and config.get("preemptible"):
+            kwargs["preemptible"] = config.get("preemptible")
 
         env_dict = dict()
 
