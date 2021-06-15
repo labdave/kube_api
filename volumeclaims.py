@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 class VolumeClaim:
     """Represents a volume claim.
     """
-    def __init__(self, claim_name, disk_space, namespace='default', storage_class="premium-rwo"):
+    def __init__(self, claim_name, disk_space, namespace='default', storage_class="faster"):
         """ Initialize a VolumeClaim object
         """
         self.name = claim_name
